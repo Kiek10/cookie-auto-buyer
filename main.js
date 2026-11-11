@@ -1,175 +1,389 @@
+
 Game.registerMod("auto_buyer", {
-  init: function() {
+  init: function () {
     const mod = this;
 
-    // ---- Settings you can edit ----
+    // =====================================
+    // CONFIGURATION
+    // =====================================
+
     const CONFIG = {
-      checkEveryTicks: 15,   // 30 ticks = 1 second
-      reserveSeconds: 0,     // keep this many seconds of CPS unspent (e.g. 900 for golden cookie combos)
-      maxBuysPerCheck: 3,    // how many purchases it can make per check
+      checkEveryTicks: 15,
+      reserveSeconds: 0,
+      maxBuysPerCheck: 3,
       buyBuildings: true,
       buyUpgrades: true
     };
 
     const MODES = {
-      all:    "Best CPS overall (saves up)",
-      afford: "Best CPS I can afford now",
-      smart:  "Fastest payback (price + waiting time)"
+      all: "Best CPS overall (saves up)",
+      afford: "Best CPS I can afford",
+      smart: "Fastest payback"
     };
+
     const MODE_ORDER = ["all", "afford", "smart"];
 
     mod.on = false;
-    mod.mode = "all";
+    mod.mode = MODE_ORDER.includes(mod.mode) ? mod.mode : "all";
     mod.target = null;
 
-    // Measure the CPS gain of every purchase by simulating it, then undoing it.
-    // This counts all upgrades you own, synergies and multipliers.
+    // =====================================
+    // MODE MANAGEMENT
+    // =====================================
+
+    mod.cycleMode = function () {
+      const current = MODE_ORDER.indexOf(mod.mode);
+      mod.mode = MODE_ORDER[(current + 1) % MODE_ORDER.length];
+
+      Game.Notify(
+        "Auto Buyer Mode",
+        MODES[mod.mode],
+        [16, 5],
+        3
+      );
+
+      if (Game.onMenu === "prefs") Game.UpdateMenu();
+    };
+
+    mod.toggleOn = function () {
+      mod.on = !mod.on;
+
+      Game.Notify(
+        "Auto Buyer",
+        mod.on ? "ON" : "OFF",
+        [16, 5],
+        2
+      );
+
+      if (Game.onMenu === "prefs") Game.UpdateMenu();
+    };
+
+    // =====================================
+    // KEYBOARD CONTROLS
+    // =====================================
+
+    // Remove the previous handler if init runs again.
+    if (mod.keyHandler) {
+      document.removeEventListener(
+        "keydown",
+        mod.keyHandler,
+        true
+      );
+    }
+
+    mod.keyHandler = function (e) {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const target = e.target;
+
+      if (
+        target &&
+        target.closest &&
+        target.closest(
+          "input, textarea, select, [contenteditable='true']"
+        )
+      ) return;
+
+      if (e.code === "KeyB") {
+        e.preventDefault();
+        e.stopPropagation();
+        mod.toggleOn();
+      }
+
+      else if (e.code === "KeyN") {
+        e.preventDefault();
+        e.stopPropagation();
+        mod.cycleMode();
+      }
+    };
+
+    document.addEventListener(
+      "keydown",
+      mod.keyHandler,
+      true
+    );
+
+    // =====================================
+    // PURCHASE EVALUATION
+    // =====================================
+
     function evaluate() {
       const items = [];
       const savedHighest = Game.cookiesPsRawHighest;
+
       try {
         Game.CalculateGains();
+
         const base = Game.cookiesPs;
+
+        // -----------------------------
+        // BUILDINGS
+        // -----------------------------
 
         if (CONFIG.buyBuildings) {
           for (const b of Game.ObjectsById) {
             if (b.locked) continue;
-            const price = b.getPrice();
-            b.amount++;
-            Game.CalculateGains();
-            const gain = Game.cookiesPs - base;
-            b.amount--;
-            if (gain > 0) items.push({ obj: b, isBuilding: true, name: b.name, price, gain });
+
+            const originalAmount = b.amount;
+
+            try {
+              const price = b.getPrice();
+
+              if (!Number.isFinite(price) || price <= 0) continue;
+
+              b.amount = originalAmount + 1;
+              Game.CalculateGains();
+
+              const gain = Game.cookiesPs - base;
+
+              if (gain > 0 && Number.isFinite(gain)) {
+                items.push({
+                  obj: b,
+                  isBuilding: true,
+                  name: b.name,
+                  price: price,
+                  gain: gain
+                });
+              }
+            } catch (err) {
+              console.warn("Auto Buyer building evaluation:", b.name, err);
+            } finally {
+              b.amount = originalAmount;
+              Game.CalculateGains();
+            }
           }
         }
+
+        // -----------------------------
+        // UPGRADES
+        // -----------------------------
 
         if (CONFIG.buyUpgrades) {
           for (const u of Game.UpgradesInStore) {
-            if (u.pool === "toggle" || u.pool === "debug") continue;
-            const price = u.getPrice();
-            u.bought = 1;
-            Game.CalculateGains();
-            const gain = Game.cookiesPs - base;
-            u.bought = 0;
-            if (gain > 0) items.push({ obj: u, isBuilding: false, name: u.name, price, gain });
+            if (
+              u.pool === "toggle" ||
+              u.pool === "debug" ||
+              u.bought
+            ) continue;
+
+            const originalBought = u.bought;
+
+            try {
+              const price = u.getPrice();
+
+              if (!Number.isFinite(price) || price <= 0) continue;
+
+              u.bought = 1;
+              Game.CalculateGains();
+
+              const gain = Game.cookiesPs - base;
+
+              if (gain > 0 && Number.isFinite(gain)) {
+                items.push({
+                  obj: u,
+                  isBuilding: false,
+                  name: u.name,
+                  price: price,
+                  gain: gain
+                });
+              }
+            } catch (err) {
+              console.warn("Auto Buyer upgrade evaluation:", u.name, err);
+            } finally {
+              u.bought = originalBought;
+              Game.CalculateGains();
+            }
           }
         }
+
         return { items, base };
+
       } finally {
-        Game.cookiesPsRawHighest = savedHighest; // don't let simulations inflate the game's records
-        Game.CalculateGains();                   // restore the real values
+        Game.cookiesPsRawHighest = savedHighest;
+        Game.CalculateGains();
       }
     }
 
-    // Choose the best purchase according to the current mode.
-    function pick(items, base) {
-      const spendable = Game.cookies - CONFIG.reserveSeconds * base;
-      const cps = Math.max(base, 0.1);
-      let best = null, bestScore = -Infinity;
+    // =====================================
+    // PURCHASE SELECTION
+    // =====================================
 
-      for (const it of items) {
-        if (mod.mode === "afford" && it.price > spendable) continue;
-        let score;
-        if (mod.mode === "smart") {
-          // lower total time (waiting + paying itself back) is better
-          score = -(Math.max(0, it.price - spendable) / cps + it.price / it.gain);
-        } else {
-          score = it.gain / it.price; // CPS gained per cookie spent
+    function pick(items, base) {
+      const spendable =
+        Game.cookies - CONFIG.reserveSeconds * base;
+
+      const cps = Math.max(base, 0.1);
+
+      let best = null;
+      let bestScore = -Infinity;
+
+      for (const item of items) {
+        if (mod.mode === "afford" && item.price > spendable) {
+          continue;
         }
-        if (score > bestScore) { bestScore = score; best = it; }
+
+        let score;
+
+        if (mod.mode === "smart") {
+          const waitingTime =
+            Math.max(0, item.price - spendable) / cps;
+
+          const paybackTime =
+            item.price / item.gain;
+
+          score = -(waitingTime + paybackTime);
+        }
+
+        else {
+          score = item.gain / item.price;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = item;
+        }
       }
+
       return best ? { best, spendable } : null;
     }
 
-    Game.registerHook("logic", function() {
-      if (!mod.on || Game.T % CONFIG.checkEveryTicks !== 0) return;
-      if (Game.OnAscend || Game.AscendTimer > 0) return; // not while ascending
-      if (Game.buyMode === -1) return;                   // sell mode would SELL buildings
+    // =====================================
+    // AUTOMATIC BUYING
+    // =====================================
 
-      for (let i = 0; i < CONFIG.maxBuysPerCheck; i++) {
-        const { items, base } = evaluate();
-        const choice = pick(items, base);
-        if (!choice) { mod.target = null; return; }
+    Game.registerHook("logic", function () {
+      if (!mod.on) return;
 
-        const { best, spendable } = choice;
-        mod.target = best.name + " (" + Beautify(best.price) + " cookies)";
-        if (spendable < best.price) return; // saving up for it
+      if (Game.T % CONFIG.checkEveryTicks !== 0) return;
 
-        if (best.isBuilding) best.obj.buy(1); else best.obj.buy();
+      if (Game.OnAscend || Game.AscendTimer > 0) return;
+
+      // Never buy while in sell mode.
+      if (Game.buyMode === -1) return;
+
+      try {
+        for (let i = 0; i < CONFIG.maxBuysPerCheck; i++) {
+          const result = evaluate();
+
+          if (!result || !result.items.length) {
+            mod.target = null;
+            return;
+          }
+
+          const choice = pick(result.items, result.base);
+
+          if (!choice) {
+            mod.target = null;
+            return;
+          }
+
+          const { best, spendable } = choice;
+
+          mod.target =
+            best.name + " (" + Beautify(best.price) + " cookies)";
+
+          // Save up if the purchase is not affordable.
+          if (spendable < best.price) return;
+
+          // Make the actual purchase.
+          if (best.isBuilding) {
+            best.obj.buy(1);
+          } else {
+            best.obj.buy();
+          }
+
+        }
+      } catch (err) {
+        console.error("Auto Buyer error:", err);
       }
     });
 
-// ---- Controls ----
-mod.toggleOn = function() {
-  mod.on = !mod.on;
-  Game.Notify("Auto Buyer", mod.on ? "ON" : "OFF", [16, 5], 2);
-  if (Game.onMenu === "prefs") Game.UpdateMenu();
-};
+    // =====================================
+    // SETTINGS MENU
+    // =====================================
 
-mod.cycleMode = function() {
-  mod.mode = MODE_ORDER[
-    (MODE_ORDER.indexOf(mod.mode) + 1) % MODE_ORDER.length
-  ];
-
-  Game.Notify("Auto Buyer mode", MODES[mod.mode], [16, 5], 3);
-  if (Game.onMenu === "prefs") Game.UpdateMenu();
-};
-
-mod.keyHandler = function(e) {
-  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-
-  // Ignore typing in text fields
-  if (
-    e.target.closest &&
-    e.target.closest("input, textarea, select, [contenteditable='true']")
-  ) return;
-
-  const key = e.key.toLowerCase();
-
-  if (key === "b") {
-    e.preventDefault();
-    mod.toggleOn();
-  }
-
-  if (key === "n") {
-    e.preventDefault();
-    mod.cycleMode();
-  }
-};
-
-document.removeEventListener("keydown", mod.keyHandler);
-document.addEventListener("keydown", mod.keyHandler);
-
-    // ---- Options menu ----
-    Game.customOptionsMenu.push(function() {
+    Game.customOptionsMenu.push(function () {
       try {
         const menu = l("menu");
+        if (!menu) return;
+
         const div = document.createElement("div");
         div.className = "subsection";
+
         div.innerHTML =
           '<div class="title">Auto Buyer</div>' +
-          '<div class="listing"><a class="option' + (mod.on ? '' : ' off') +
-            '" onclick="Game.mods[\'auto_buyer\'].toggleOn();">Auto Buyer ' + (mod.on ? 'ON' : 'OFF') +
-            '</a><label>Hotkey: B</label></div>' +
-          '<div class="listing"><a class="option" onclick="Game.mods[\'auto_buyer\'].cycleMode();">Mode: ' +
-            MODES[mod.mode] + '</a><label>Hotkey: N</label></div>' +
-          '<div class="listing"><label>Next target: ' + (mod.target || "none") + '</label></div>';
-        const subs = menu.querySelectorAll(".subsection");
-        if (subs.length) subs[subs.length - 1].parentNode.insertBefore(div, subs[subs.length - 1]);
-        else menu.appendChild(div);
-      } catch (err) { console.error("Auto Buyer menu error:", err); }
+
+          '<div class="listing">' +
+            '<a class="option ' + (mod.on ? "" : "off") +
+            '" id="autoBuyerToggle">' +
+            'Auto Buyer: ' + (mod.on ? "ON" : "OFF") +
+            '</a>' +
+            '<label>Hotkey: B</label>' +
+          '</div>' +
+
+          '<div class="listing">' +
+            '<a class="option" id="autoBuyerMode">' +
+            'Mode: ' + MODES[mod.mode] +
+            '</a>' +
+            '<label>Hotkey: N</label>' +
+          '</div>' +
+
+          '<div class="listing">' +
+            '<label>Next target: ' +
+            (mod.target || "None") +
+            '</label>' +
+          '</div>';
+
+        const toggle = div.querySelector("#autoBuyerToggle");
+        const mode = div.querySelector("#autoBuyerMode");
+
+        toggle.addEventListener("click", function () {
+          mod.toggleOn();
+        });
+
+        mode.addEventListener("click", function () {
+          mod.cycleMode();
+        });
+
+        const subsections = menu.querySelectorAll(".subsection");
+
+        if (subsections.length) {
+          const last = subsections[subsections.length - 1];
+          last.parentNode.insertBefore(div, last);
+        } else {
+          menu.appendChild(div);
+        }
+
+      } catch (err) {
+        console.error("Auto Buyer menu error:", err);
+      }
     });
 
-    Game.Notify("Auto Buyer loaded", "B = on/off, N = change mode", [16, 5]);
+    Game.Notify(
+      "Auto Buyer Loaded",
+      "B = ON/OFF | N = Change Mode",
+      [16, 5],
+      5
+    );
   },
 
-  save: function() { return JSON.stringify({ mode: this.mode }); },
-  load: function(str) {
+  save: function () {
+    return JSON.stringify({
+      mode: this.mode
+    });
+  },
+
+  load: function (str) {
     try {
-      const d = JSON.parse(str);
-      if (d && ["all", "afford", "smart"].includes(d.mode)) this.mode = d.mode;
-    } catch (e) {
-      if (["all", "afford", "smart"].includes(str)) this.mode = str; // old save format
+      const data = JSON.parse(str);
+
+      if (data && MODE_ORDER.includes(data.mode)) {
+        this.mode = data.mode;
+      }
+    } catch (err) {
+      if (["all", "afford", "smart"].includes(str)) {
+        this.mode = str;
+      }
     }
   }
 });
