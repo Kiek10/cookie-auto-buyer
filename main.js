@@ -99,26 +99,46 @@ Game.registerMod("auto_buyer", {
       }
     });
 
-    // ---- Controls ----
-    mod.toggleOn = function() {
-      mod.on = !mod.on;
-      Game.Notify("Auto Buyer", mod.on ? "ON" : "OFF", [16, 5], 2);
-      if (Game.onMenu === "prefs") Game.UpdateMenu();
-    };
+// ---- Controls ----
+mod.toggleOn = function() {
+  mod.on = !mod.on;
+  Game.Notify("Auto Buyer", mod.on ? "ON" : "OFF", [16, 5], 2);
+  if (Game.onMenu === "prefs") Game.UpdateMenu();
+};
 
-    mod.cycleMode = function() {
-      mod.mode = MODE_ORDER[(MODE_ORDER.indexOf(mod.mode) + 1) % MODE_ORDER.length];
-      Game.Notify("Auto Buyer mode", MODES[mod.mode], [16, 5], 3);
-      if (Game.onMenu === "prefs") Game.UpdateMenu();
-    };
+mod.cycleMode = function() {
+  mod.mode = MODE_ORDER[
+    (MODE_ORDER.indexOf(mod.mode) + 1) % MODE_ORDER.length
+  ];
 
-    document.addEventListener("keydown", e => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
-      const k = e.key.toLowerCase();
-      if (k === "b") mod.toggleOn();
-      else if (k === "n") mod.cycleMode();
-    });
+  Game.Notify("Auto Buyer mode", MODES[mod.mode], [16, 5], 3);
+  if (Game.onMenu === "prefs") Game.UpdateMenu();
+};
+
+mod.keyHandler = function(e) {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+
+  // Ignore typing in text fields
+  if (
+    e.target.closest &&
+    e.target.closest("input, textarea, select, [contenteditable='true']")
+  ) return;
+
+  const key = e.key.toLowerCase();
+
+  if (key === "b") {
+    e.preventDefault();
+    mod.toggleOn();
+  }
+
+  if (key === "n") {
+    e.preventDefault();
+    mod.cycleMode();
+  }
+};
+
+document.removeEventListener("keydown", mod.keyHandler);
+document.addEventListener("keydown", mod.keyHandler);
 
     // ---- Options menu ----
     Game.customOptionsMenu.push(function() {
