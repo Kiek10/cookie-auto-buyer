@@ -295,90 +295,31 @@ Game.registerMod("auto_buyer", {
       }
     });
 
-    // =====================================
-    // IN-GAME OPTIONS MENU
-    // =====================================
+// =====================================
+// KEYBOARD CONTROLS
+// =====================================
 
-    Game.customOptionsMenu.push(function () {
-      try {
-        const menu = l("menu");
-        if (!menu) return;
+mod.keyHandler = function (e) {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
 
-        const div = document.createElement("div");
-        div.className = "subsection";
+  if (
+    e.target &&
+    e.target.closest &&
+    e.target.closest("input, textarea, select, [contenteditable]")
+  ) return;
 
-        div.innerHTML = `
-          <div class="title">AUTO BUYER</div>
+  if (e.key.toLowerCase() === "b") {
+    e.preventDefault();
+    mod.toggleOn();
+  }
 
-          <div class="listing">
-            <a class="option ${mod.on ? "" : "off"}"
-               id="abToggle">
-              Auto Buyer: ${mod.on ? "ON" : "OFF"}
-            </a>
-            <label>Hotkey: B</label>
-          </div>
+  else if (e.key.toLowerCase() === "n") {
+    e.preventDefault();
+    mod.cycleMode();
+  }
+};
 
-          <div class="listing">
-            <a class="option" id="abMode">
-              Mode: ${MODES[mod.mode]}
-            </a>
-            <label>Hotkey: N</label>
-          </div>
-
-          <div class="listing">
-            <label>
-              Current mode: ${mod.mode.toUpperCase()}
-            </label>
-          </div>
-
-          <div class="listing">
-            <label>
-              Next target: ${mod.target || "None"}
-            </label>
-          </div>
-
-          <div class="listing">
-            <label>
-              Check interval: ${CONFIG.checkEveryTicks} ticks
-            </label>
-          </div>
-        `;
-
-        div.querySelector("#abToggle").addEventListener(
-          "click",
-          function () {
-            mod.toggleOn();
-          }
-        );
-
-        div.querySelector("#abMode").addEventListener(
-          "click",
-          function () {
-            mod.cycleMode();
-
-            Game.Popup(
-              "Mode: " + MODES[mod.mode],
-              Game.mouseX,
-              Game.mouseY
-            );
-          }
-        );
-
-        const subsections =
-          menu.querySelectorAll(".subsection");
-
-        if (subsections.length) {
-          const last = subsections[subsections.length - 1];
-
-          last.parentNode.insertBefore(div, last);
-        } else {
-          menu.appendChild(div);
-        }
-
-      } catch (err) {
-        console.error("Auto Buyer menu error:", err);
-      }
-    });
+window.addEventListener("keydown", mod.keyHandler, true);
 
     // =====================================
     // LOAD NOTIFICATION
