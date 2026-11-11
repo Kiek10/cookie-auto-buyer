@@ -62,7 +62,6 @@ Game.registerMod("auto_buyer", {
     // KEYBOARD CONTROLS
     // =====================================
 
-    // Remove the previous handler if init runs again.
     if (mod.keyHandler) {
       document.removeEventListener(
         "keydown",
@@ -93,7 +92,14 @@ Game.registerMod("auto_buyer", {
       else if (e.code === "KeyN") {
         e.preventDefault();
         e.stopPropagation();
+
         mod.cycleMode();
+
+        Game.Popup(
+          "Auto Buyer: " + MODES[mod.mode],
+          Game.mouseX,
+          Game.mouseY
+        );
       }
     };
 
@@ -116,10 +122,7 @@ Game.registerMod("auto_buyer", {
 
         const base = Game.cookiesPs;
 
-        // -----------------------------
         // BUILDINGS
-        // -----------------------------
-
         if (CONFIG.buyBuildings) {
           for (const b of Game.ObjectsById) {
             if (b.locked) continue;
@@ -146,7 +149,7 @@ Game.registerMod("auto_buyer", {
                 });
               }
             } catch (err) {
-              console.warn("Auto Buyer building evaluation:", b.name, err);
+              console.warn("Building evaluation error:", err);
             } finally {
               b.amount = originalAmount;
               Game.CalculateGains();
@@ -154,10 +157,7 @@ Game.registerMod("auto_buyer", {
           }
         }
 
-        // -----------------------------
         // UPGRADES
-        // -----------------------------
-
         if (CONFIG.buyUpgrades) {
           for (const u of Game.UpgradesInStore) {
             if (
@@ -188,7 +188,7 @@ Game.registerMod("auto_buyer", {
                 });
               }
             } catch (err) {
-              console.warn("Auto Buyer upgrade evaluation:", u.name, err);
+              console.warn("Upgrade evaluation error:", err);
             } finally {
               u.bought = originalBought;
               Game.CalculateGains();
@@ -218,9 +218,10 @@ Game.registerMod("auto_buyer", {
       let bestScore = -Infinity;
 
       for (const item of items) {
-        if (mod.mode === "afford" && item.price > spendable) {
-          continue;
-        }
+        if (
+          mod.mode === "afford" &&
+          item.price > spendable
+        ) continue;
 
         let score;
 
@@ -232,9 +233,7 @@ Game.registerMod("auto_buyer", {
             item.price / item.gain;
 
           score = -(waitingTime + paybackTime);
-        }
-
-        else {
+        } else {
           score = item.gain / item.price;
         }
 
@@ -258,7 +257,6 @@ Game.registerMod("auto_buyer", {
 
       if (Game.OnAscend || Game.AscendTimer > 0) return;
 
-      // Never buy while in sell mode.
       if (Game.buyMode === -1) return;
 
       try {
@@ -280,26 +278,25 @@ Game.registerMod("auto_buyer", {
           const { best, spendable } = choice;
 
           mod.target =
-            best.name + " (" + Beautify(best.price) + " cookies)";
+            best.name +
+            " (" + Beautify(best.price) + " cookies)";
 
-          // Save up if the purchase is not affordable.
           if (spendable < best.price) return;
 
-          // Make the actual purchase.
           if (best.isBuilding) {
             best.obj.buy(1);
           } else {
             best.obj.buy();
           }
-
         }
+
       } catch (err) {
         console.error("Auto Buyer error:", err);
       }
     });
 
     // =====================================
-    // SETTINGS MENU
+    // IN-GAME OPTIONS MENU
     // =====================================
 
     Game.customOptionsMenu.push(function () {
@@ -310,45 +307,69 @@ Game.registerMod("auto_buyer", {
         const div = document.createElement("div");
         div.className = "subsection";
 
-        div.innerHTML =
-          '<div class="title">Auto Buyer</div>' +
+        div.innerHTML = `
+          <div class="title">AUTO BUYER</div>
 
-          '<div class="listing">' +
-            '<a class="option ' + (mod.on ? "" : "off") +
-            '" id="autoBuyerToggle">' +
-            'Auto Buyer: ' + (mod.on ? "ON" : "OFF") +
-            '</a>' +
-            '<label>Hotkey: B</label>' +
-          '</div>' +
+          <div class="listing">
+            <a class="option ${mod.on ? "" : "off"}"
+               id="abToggle">
+              Auto Buyer: ${mod.on ? "ON" : "OFF"}
+            </a>
+            <label>Hotkey: B</label>
+          </div>
 
-          '<div class="listing">' +
-            '<a class="option" id="autoBuyerMode">' +
-            'Mode: ' + MODES[mod.mode] +
-            '</a>' +
-            '<label>Hotkey: N</label>' +
-          '</div>' +
+          <div class="listing">
+            <a class="option" id="abMode">
+              Mode: ${MODES[mod.mode]}
+            </a>
+            <label>Hotkey: N</label>
+          </div>
 
-          '<div class="listing">' +
-            '<label>Next target: ' +
-            (mod.target || "None") +
-            '</label>' +
-          '</div>';
+          <div class="listing">
+            <label>
+              Current mode: ${mod.mode.toUpperCase()}
+            </label>
+          </div>
 
-        const toggle = div.querySelector("#autoBuyerToggle");
-        const mode = div.querySelector("#autoBuyerMode");
+          <div class="listing">
+            <label>
+              Next target: ${mod.target || "None"}
+            </label>
+          </div>
 
-        toggle.addEventListener("click", function () {
-          mod.toggleOn();
-        });
+          <div class="listing">
+            <label>
+              Check interval: ${CONFIG.checkEveryTicks} ticks
+            </label>
+          </div>
+        `;
 
-        mode.addEventListener("click", function () {
-          mod.cycleMode();
-        });
+        div.querySelector("#abToggle").addEventListener(
+          "click",
+          function () {
+            mod.toggleOn();
+          }
+        );
 
-        const subsections = menu.querySelectorAll(".subsection");
+        div.querySelector("#abMode").addEventListener(
+          "click",
+          function () {
+            mod.cycleMode();
+
+            Game.Popup(
+              "Mode: " + MODES[mod.mode],
+              Game.mouseX,
+              Game.mouseY
+            );
+          }
+        );
+
+        const subsections =
+          menu.querySelectorAll(".subsection");
 
         if (subsections.length) {
           const last = subsections[subsections.length - 1];
+
           last.parentNode.insertBefore(div, last);
         } else {
           menu.appendChild(div);
@@ -359,6 +380,10 @@ Game.registerMod("auto_buyer", {
       }
     });
 
+    // =====================================
+    // LOAD NOTIFICATION
+    // =====================================
+
     Game.Notify(
       "Auto Buyer Loaded",
       "B = ON/OFF | N = Change Mode",
@@ -366,6 +391,10 @@ Game.registerMod("auto_buyer", {
       5
     );
   },
+
+  // =====================================
+  // SAVE AND LOAD
+  // =====================================
 
   save: function () {
     return JSON.stringify({
@@ -377,9 +406,13 @@ Game.registerMod("auto_buyer", {
     try {
       const data = JSON.parse(str);
 
-      if (data && MODE_ORDER.includes(data.mode)) {
+      if (
+        data &&
+        ["all", "afford", "smart"].includes(data.mode)
+      ) {
         this.mode = data.mode;
       }
+
     } catch (err) {
       if (["all", "afford", "smart"].includes(str)) {
         this.mode = str;
